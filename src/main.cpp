@@ -1,52 +1,75 @@
 #include <Arduino.h>
+#include <stdlib.h>
 #include "wii_nunchuck_setup.h"
-
-// void setup() {
-//   // put your setup code here, to run once:
-//   Serial.begin(115200);
-//   while (!Serial)
-//   {
-//     ; // wait for serial port to connect. Needed for native USB port only
-//   }
-// }
-
-// void loop() {
-//   // put your main code here, to run repeatedly:
-//   Serial.println("bruh");
-// }
-
-// void establishContact()
-// {
-
-//   while (Serial.available() <= 0)
-//   {
-//     // 
-//     Serial.print(0xF0);
-
-//     delay(300);
-//   }
-// }
 
 #define PIN_SDA 21
 #define PIN_SCL 22
+#define LaserPin 23
 #define WII_I2C_PORT 0
+#define AIM_THRESHOLD 150
+#define STEER_THRESHOLD 200
+
+#define MTR1_1 32
+#define MTR1_2 33
+#define STEER 4
 
 unsigned int controller_type = 0;
+static bool drive = false;
+static int lastCycle = -1;
 
-void show_nunchuk(const unsigned char *data)
+const int freq = 100;
+const int steerChannel = 0;
+const int resolution = 8;
+
+void parse_nunchuck(const unsigned char *data, wii_i2c_nunchuk_state* state)
+{
+  wii_i2c_decode_nunchuk(data, state);
+
+  Serial.printf("a = (%5d,%5d,%5d)\n", state->acc_x, state->acc_y, state->acc_z);
+  Serial.printf("d = (%5d,%5d)\n", state->x, state->y);
+  Serial.printf("c=%d, z=%d\n", state->c, state->z);
+}
+
+void handle_nunchuck(const unsigned char *data)
 {
   wii_i2c_nunchuk_state state;
-  wii_i2c_decode_nunchuk(data, &state);
+  parse_nunchuck(data, &state);
+  drive = state.z == 1;
+  if (drive) {
+    // drive forward
+    Serial.println("DRIVE FORWARD");
+    digitalWrite(MTR1_1, HIGH);
+    digitalWrite(MTR1_2, LOW);
+  }
 
-  Serial.printf("a = (%5d,%5d,%5d)\n", state.acc_x, state.acc_y, state.acc_z);
-  Serial.printf("d = (%5d,%5d)\n", state.x, state.y);
-  Serial.printf("c=%d, z=%d\n", state.c, state.z);
+  int steerDutyCycle;
+  int acc_x = state.acc_x;
+  if (acc_x > 200) {
+    acc_x = 200;
+  }
+  if (acc_x < -200) {
+    acc_x = -200;
+  }
+  steerDutyCycle = (int)(30 * -acc_x / 200 + 40);
+  Serial.println(steerDutyCycle);
+
+  if (abs(steerDutyCycle - lastCycle) > 2) {
+    ledcWrite(steerChannel, steerDutyCycle);
+    lastCycle = steerDutyCycle;
+  }
+    
 }
 
 void setup()
 {
   Serial.begin(115200);
   Serial.printf("Starting...\n");
+  pinMode(MTR1_1, OUTPUT);
+  pinMode(MTR1_2, OUTPUT);
+
+  ledcSetup(steerChannel, freq, resolution);
+
+  ledcAttachPin(STEER, steerChannel);
 
   if (wii_i2c_init(WII_I2C_PORT, PIN_SDA, PIN_SCL) != 0)
   {
@@ -79,10 +102,11 @@ void loop()
   wii_i2c_request_state();
   if (data)
   {
+    
     switch (controller_type)
     {
     case WII_I2C_IDENT_NUNCHUK:
-      show_nunchuk(data);
+      handle_nunchuck(data);
       break;
     default:
       Serial.printf("data: %02x %02x %02x %02x %02x %02x\n",
@@ -95,5 +119,5 @@ void loop()
     Serial.printf("no data :(\n");
   }
 
-  delay(500);
+  delay(50);
 }
