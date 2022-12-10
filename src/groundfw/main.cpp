@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <stdlib.h>
 #include "wii_nunchuck_setup.h"
-
+#include <LoRaLib.h>
 #define PIN_SDA 21
 #define PIN_SCL 22
 #define LaserPin 23
@@ -24,6 +24,11 @@ const int resolution = 8;
 #include <LoRaLib.h>
 SX1278 lora = new LoRa;
 int valu;
+
+
+void handle_nunchuck(const unsigned char *data, wii_i2c_nunchuk_state* state);
+void transmit_val(String to_transmit);
+
 
 void setup() {
   Serial.begin(115200);

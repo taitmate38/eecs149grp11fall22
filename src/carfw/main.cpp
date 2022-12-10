@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <stdlib.h>
-#include "wii_nunchuck_setup.h"
 #include <LoRaLib.h>
 #define PIN_SDA 21
 #define PIN_SCL 22
