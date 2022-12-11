@@ -2,16 +2,25 @@
 #include <stdlib.h>
 #include "wii_nunchuck_setup.h"
 #include <LoRaLib.h>
+
+// Nunchuck
+#define WII_I2C_PORT 0
 #define PIN_SDA 21
 #define PIN_SCL 22
-#define LaserPin 23
-#define WII_I2C_PORT 0
+
+// Driving
 #define AIM_THRESHOLD 150
 #define STEER_THRESHOLD 200
 
 #define MTR1_1 32
 #define MTR1_2 33
 #define STEER 4
+
+// Modules
+#define LaserPin 23
+
+#define DEBUG false
+
 
 unsigned int controller_type = 0;
 static bool drive = false;
@@ -21,7 +30,8 @@ const int freq = 100;
 const int steerChannel = 0;
 const int resolution = 8;
 
-#include <LoRaLib.h>
+int cycleTimer;
+
 SX1278 lora = new LoRa;
 int valu;
 
@@ -34,13 +44,16 @@ void setup() {
   Serial.begin(115200);
 
   Serial.printf("Starting...\n");
+
+  // driving setup
   pinMode(MTR1_1, OUTPUT);
   pinMode(MTR1_2, OUTPUT);
 
   ledcSetup(steerChannel, freq, resolution);
-
   ledcAttachPin(STEER, steerChannel);
 
+
+  // Nunchuk setup
   if (wii_i2c_init(WII_I2C_PORT, PIN_SDA, PIN_SCL) != 0)
   {
     Serial.printf("ERROR initializing wii i2c controller\n");
@@ -65,17 +78,17 @@ void setup() {
   }
   wii_i2c_request_state();
 
-  Serial.print(F("Initializing ... "));
+  Serial.print(F("Initializing Radio ... "));
   // carrier frequency:           434.0 MHz
   // bandwidth:                   250.0 kHz
-  // spreading factor:            10
+  // spreading factor:            9
   // coding rate:                 8
   // sync word:                   0x12
   // output power:                17 dBmdel
   // current limit:               240 mA
   // preamble length:             8 symbols
   // amplifier gain:              1 (maximum gain control)
-  int state = lora.begin(434.0, 250, 10, 8, 0x12, 17, 240, 8, 1);
+  int state = lora.begin(434.0, 250, 6, 8, 0x12, 17, 240, 8, 1);
   if (state == ERR_NONE) {
     Serial.println(F("success!"));
   } else {
@@ -83,6 +96,8 @@ void setup() {
     Serial.println(state);
     while (true);
   }
+
+  cycleTimer = millis();
 }
 
 void loop() {
@@ -90,7 +105,13 @@ void loop() {
   const unsigned char *data = wii_i2c_read_state();
   wii_i2c_nunchuk_state state;
 
+  Serial.print("1:"); // 1
+  Serial.print(millis()-cycleTimer);
+
   wii_i2c_request_state();
+
+  Serial.print(", 2:"); // 2
+  Serial.print(millis()-cycleTimer);
   if (data)
   {
     
@@ -100,8 +121,9 @@ void loop() {
       handle_nunchuck(data, &state);
       break;
     default:
-      Serial.printf("data: %02x %02x %02x %02x %02x %02x\n",
-                    data[0], data[1], data[2], data[3], data[4], data[5]);
+      // Serial.printf("data: %02x %02x %02x %02x %02x %02x\n",
+      //               data[0], data[1], data[2], data[3], data[4], data[5]);
+                    ;
       break;
     }
   }
@@ -118,18 +140,23 @@ void loop() {
                   state.acc_x, state.acc_y, state.acc_z, 
                   state.x, state.y, state.c, state.z);
 
-  Serial.println(j);
-  Serial.println(buffer);
+  // Serial.println(j);
+  // Serial.println(buffer);
   
+  Serial.print(", 3:"); // 3
+  Serial.print(millis()-cycleTimer);
+
   transmit_val(buffer);
 
-  Serial.printf("hi = (%5d,%5d,%5d)\n", state.acc_x, state.acc_y, state.acc_z);
+  Serial.print(", total:");
+
+  Serial.print(millis()-cycleTimer);
+  cycleTimer = millis();
+  Serial.printf(", hi = (%5d,%5d,%5d)\n", state.acc_x, state.acc_y, state.acc_z);
 //  Serial.printf("d = (%5d,%5d)\n", state->x, state->y);
 //  Serial.printf("c=%d, z=%d\n", state->c, state->z);
 
   
-  
-  delay(1);
 }
 
 void transmit_val(String to_transmit) {
@@ -150,9 +177,9 @@ void parse_nunchuck(const unsigned char *data, wii_i2c_nunchuk_state* state)
 {
     wii_i2c_decode_nunchuk(data, state);
 
-  Serial.printf("a = (%5d,%5d,%5d)\n", state->acc_x, state->acc_y, state->acc_z);
-  Serial.printf("d = (%5d,%5d)\n", state->x, state->y);
-  Serial.printf("c=%d, z=%d\n", state->c, state->z);
+  // Serial.printf("a = (%5d,%5d,%5d)\n", state->acc_x, state->acc_y, state->acc_z);
+  // Serial.printf("d = (%5d,%5d)\n", state->x, state->y);
+  // Serial.printf("c=%d, z=%d\n", state->c, state->z);
 
 }
 
@@ -176,7 +203,7 @@ void handle_nunchuck(const unsigned char *data, wii_i2c_nunchuk_state* state)
     acc_x = -200;
   }
   steerDutyCycle = (int)(30 * -acc_x / 200 + 40);
-  Serial.println(steerDutyCycle);
+  // Serial.println(steerDutyCycle);
 
   if (abs(steerDutyCycle - lastCycle) > 2) {
     ledcWrite(steerChannel, steerDutyCycle);
