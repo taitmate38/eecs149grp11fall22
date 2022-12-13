@@ -1,51 +1,63 @@
 #include <Arduino.h>
 #include <stdlib.h>
 #include <LoRaLib.h>
-#define PIN_SDA 21
-#define PIN_SCL 22
-#define LaserPin 23
-#define WII_I2C_PORT 0
-#define AIM_THRESHOLD 150
+
+
+// Driving
+#define MTR1_1 33
+#define MTR1_2 25
+#define STEER 32
 #define STEER_THRESHOLD 200
 
-#define MTR1_1 33
-#define MTR1_2 26
-#define STEER 32
+// Modules
+#define LaserPin 23
+#define AIM_THRESHOLD 150
 
+
+// drive parameters
 unsigned int controller_type = 0;
-static bool drive = false;
+static bool drive_fwd = false;
+static bool drive_back = false;
 static int lastCycle = -1;
 
+// steering parameters
 const int freq = 300;
 const int steerChannel = 0;
 const int resolution = 12;
 
 
 
-void handle_nunchuck(int tilt, int b0, int b1)
+void handle_nunchuck(int tilt, int btn0, int btn1)
 {
-  drive = b0;
-  if (drive) {
+  drive_fwd = btn0;
+  drive_back = btn1;
+  if (drive_fwd) {
     // drive forward
     Serial.println("DRIVE FORWARD");
     digitalWrite(MTR1_1, HIGH);
     digitalWrite(MTR1_2, LOW);
+  } else if (drive_back) {
+    Serial.println("DRIVE BACKWARD");
+    digitalWrite(MTR1_1, LOW);
+    digitalWrite(MTR1_2, HIGH);
   } else {
     digitalWrite(MTR1_1, LOW);
     digitalWrite(MTR1_2, LOW);
   }
 
+  // clip nunchuck output to STEER_THRESHOLD
   int steerDutyCycle;
   int acc_x = tilt;
-  if (acc_x > 200) {
-    acc_x = 200;
+  if (acc_x > STEER_THRESHOLD) {
+    acc_x = STEER_THRESHOLD;
   }
-  if (acc_x < -200) {
-    acc_x = -200;
+  if (acc_x < -STEER_THRESHOLD) {
+    acc_x = -STEER_THRESHOLD;
   }
   steerDutyCycle = (int)((-1.5*tilt) + 2000);
   Serial.println(steerDutyCycle);
 
+  // only update steering servo position if there has been a significant enough change in commanded position  
   if (abs(steerDutyCycle - lastCycle) > 2) {
     ledcWrite(steerChannel, steerDutyCycle);
     lastCycle = steerDutyCycle;
@@ -58,15 +70,14 @@ SX1278 lora = new LoRa;
 void setup()
 {
   Serial.begin(115200);
-  Serial.printf("Starting...\n");
+  Serial.printf("Setting motor & steering pins...\n");
   pinMode(MTR1_1, OUTPUT);
   pinMode(MTR1_2, OUTPUT);
 
   ledcSetup(steerChannel, freq, resolution);
-
   ledcAttachPin(STEER, steerChannel);
 
-    Serial.print(F("Initializing ... "));
+  Serial.print(F("Initializing Radio... "));
   // carrier frequency:           434.0 MHz
   // bandwidth:                   250.0 kHz
   // spreading factor:            10
@@ -91,7 +102,9 @@ void loop()
 {
   String str;
   
-  int bigButton, smallButton, tilt = 0;
+  int bigButton = 0;
+  int smallButton = 0;
+  int tilt = 0;
 
   int state = lora.receive(str);
   if (state == ERR_NONE) {
@@ -110,7 +123,9 @@ void loop()
       if (ctr == 6) {
         // Serial.printf("buttonval: %d\n", str[index+1]);
         bigButton = str[index+1] == 48 ? 0 : 1;
-      } else if (ctr == 5) {
+      } else if (ctr == 5 && str[index] == ',') {
+        Serial.print("!!:");
+        Serial.println(str[index+1]);
         smallButton = str[index+1] == 48 ? 0 : 1;
       } else if ((ctr == 0) && str[index+1] == ',') {
         tilt = str.substring(0, index+1).toInt();
@@ -118,7 +133,7 @@ void loop()
       index++;
     }
 
-    // Serial.printf("bb: %d, sb: %d, tilt: %d\n", bigButton, smallButton, tilt);
+    Serial.printf("bb: %d, sb: %d, tilt: %d\n", bigButton, smallButton, tilt);
     Serial.println(str);
 
   } else if (state == ERR_RX_TIMEOUT) {
